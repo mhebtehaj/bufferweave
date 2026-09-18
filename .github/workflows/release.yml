@@ -1,0 +1,59 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: python -m unittest discover -s tests -v
+      - working-directory: extension
+        run: npm ci
+      - working-directory: extension
+        run: npm run build
+      - working-directory: extension
+        run: npm run test:integration
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(node -p "require('./extension/package.json').version")
+          test "$GITHUB_REF_NAME" = "v$version"
+          grep -F "## [$version]" CHANGELOG.md
+      - working-directory: extension
+        run: npm run package
+      - name: Build coordinated source bundle
+        run: |
+          version=$(node -p "require('./extension/package.json').version")
+          bundle="bufferweave-$version"
+          mkdir -p "dist/$bundle"
+          git archive HEAD | tar -x -C "dist/$bundle"
+          cp extension/bufferweave.vsix "dist/$bundle/extension/"
+          tar -czf "dist/$bundle.tar.gz" -C dist "$bundle"
+          (cd dist && shasum -a 256 "$bundle.tar.gz" > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bufferweave-release-candidate
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+      - name: Create draft GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --prerelease --title "$GITHUB_REF_NAME" --generate-notes --notes-file .github/release-notes-intro.md dist/*.tar.gz dist/SHA256SUMS

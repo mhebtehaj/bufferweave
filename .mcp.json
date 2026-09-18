@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bufferweave": {
+      "command": "./scripts/bufferweave-mcp",
+      "args": [],
+      "cwd": "."
+    }
+  }
+}

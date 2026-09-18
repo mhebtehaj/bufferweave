@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.log
+*.vsix
+SHA256SUMS
+dist/
+.DS_Store
+
+extension/node_modules/
+extension/.vscode-test/

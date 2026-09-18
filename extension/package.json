@@ -1,0 +1,116 @@
+{
+  "name": "bufferweave",
+  "displayName": "BufferWeave",
+  "description": "A local, concurrency-safe bridge that lets AI coding agents collaborate in live Cursor and VS Code buffers.",
+  "version": "0.3.0",
+  "publisher": "mhebtehaj",
+  "author": {
+    "name": "M. H. Ebtehaj",
+    "url": "https://github.com/mhebtehaj"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mhebtehaj/bufferweave.git"
+  },
+  "homepage": "https://github.com/mhebtehaj/bufferweave#readme",
+  "bugs": {
+    "url": "https://github.com/mhebtehaj/bufferweave/issues"
+  },
+  "license": "MIT",
+  "preview": true,
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "cursor",
+    "vscode",
+    "ai-agents",
+    "codex",
+    "collaboration",
+    "beta"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The bridge exposes live workspace buffers over a local authenticated socket, so it only runs after the user trusts the workspace."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "The current transport accepts only canonical local file paths inside open local workspace folders."
+    }
+  },
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "bufferWeave.applyPreview",
+        "title": "BufferWeave: Apply Pending Preview"
+      },
+      {
+        "command": "bufferWeave.rejectPreview",
+        "title": "BufferWeave: Reject Pending Preview"
+      },
+      {
+        "command": "bufferWeave.showStatus",
+        "title": "BufferWeave: Show Connection Status"
+      },
+      {
+        "command": "bufferWeave.grantRead",
+        "title": "BufferWeave: Enable Read and Preview for This Workspace"
+      },
+      {
+        "command": "bufferWeave.grantEdit",
+        "title": "BufferWeave: Allow Direct Edits for This Workspace"
+      },
+      {
+        "command": "bufferWeave.grantSave",
+        "title": "BufferWeave: Allow Saving for This Workspace"
+      },
+      {
+        "command": "bufferWeave.revokeAccess",
+        "title": "BufferWeave: Revoke Access for This Workspace"
+      }
+    ],
+    "configuration": {
+      "title": "BufferWeave",
+      "properties": {
+        "bufferWeave.historyLimit": {
+          "type": "integer",
+          "default": 256,
+          "minimum": 16,
+          "maximum": 4096,
+          "description": "Maximum version transitions retained per open document."
+        },
+        "bufferWeave.historyBytes": {
+          "type": "integer",
+          "default": 4194304,
+          "minimum": 65536,
+          "maximum": 67108864,
+          "description": "Approximate maximum change-history bytes retained per open document."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "node scripts/check-package.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:integration": "node test/integration/run.js",
+    "test:all": "npm test && npm run test:integration",
+    "build": "npm run check && npm test",
+    "check:vsix": "node scripts/check-vsix.js",
+    "package": "vsce package --no-dependencies --out bufferweave.vsix && npm run check:vsix"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.2"
+  }
+}

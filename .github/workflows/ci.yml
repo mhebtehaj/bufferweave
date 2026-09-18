@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.10', '3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+
+  extension:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - working-directory: extension
+        run: npm ci
+      - working-directory: extension
+        run: npm run build
+      - working-directory: extension
+        run: npm run package
+      - working-directory: extension
+        run: shasum -a 256 bufferweave.vsix > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bufferweave-vsix
+          path: |
+            extension/bufferweave.vsix
+            extension/SHA256SUMS
+
+  extension-host:
+    timeout-minutes: 20
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - working-directory: extension
+        run: npm ci
+      - working-directory: extension
+        run: npm run test:integration

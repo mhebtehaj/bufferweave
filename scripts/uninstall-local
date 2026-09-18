@@ -1,0 +1,124 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MCP_LAUNCHER="$SCRIPT_DIR/bufferweave-mcp"
+LEGACY_LAUNCHER="$SCRIPT_DIR/cursor-bridge-mcp"
+SELECTED_EDITOR=
+
+usage() {
+  printf '%s\n' 'Usage: ./scripts/uninstall-local [--editor cursor|code|both]'
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --editor)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      case "$2" in
+        cursor|code|both) SELECTED_EDITOR=$2 ;;
+        *) printf 'Unsupported editor: %s\n' "$2" >&2; usage >&2; exit 2 ;;
+      esac
+      shift 2
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+find_cursor_cli() {
+  if command -v cursor >/dev/null 2>&1; then command -v cursor; return; fi
+  for app_root in /Applications "$HOME/Applications"; do
+    candidate="$app_root/Cursor.app/Contents/Resources/app/bin/cursor"
+    if [ -x "$candidate" ]; then printf '%s\n' "$candidate"; return; fi
+  done
+  return 1
+}
+
+find_code_cli() {
+  if command -v code >/dev/null 2>&1; then command -v code; return; fi
+  for app_root in /Applications "$HOME/Applications"; do
+    candidate="$app_root/Visual Studio Code.app/Contents/Resources/app/bin/code"
+    if [ -x "$candidate" ]; then printf '%s\n' "$candidate"; return; fi
+  done
+  return 1
+}
+
+OWN_REGISTRATION=0
+OWN_LEGACY_REGISTRATION=0
+if command -v codex >/dev/null 2>&1; then
+  if MCP_DETAILS=$(codex mcp get bufferweave 2>/dev/null); then
+    REGISTERED_COMMAND=$(printf '%s\n' "$MCP_DETAILS" | sed -n 's/^  command: //p')
+    if [ "$REGISTERED_COMMAND" != "$MCP_LAUNCHER" ]; then
+      printf '%s\n' 'Refusing to uninstall because bufferweave belongs to another checkout:' >&2
+      printf '  %s\n' "$REGISTERED_COMMAND" >&2
+      exit 1
+    fi
+    OWN_REGISTRATION=1
+  fi
+  if LEGACY_DETAILS=$(codex mcp get cursor_bridge 2>/dev/null); then
+    LEGACY_COMMAND=$(printf '%s\n' "$LEGACY_DETAILS" | sed -n 's/^  command: //p')
+    if [ "$LEGACY_COMMAND" = "$LEGACY_LAUNCHER" ]; then
+      OWN_LEGACY_REGISTRATION=1
+    else
+      printf '%s\n' 'Leaving the foreign cursor_bridge registration unchanged.'
+    fi
+  fi
+fi
+
+CURSOR_CLI=
+CODE_CLI=
+CURSOR_CLI=$(find_cursor_cli) || true
+CODE_CLI=$(find_code_cli) || true
+
+if [ -z "$SELECTED_EDITOR" ]; then
+  if [ -n "$CURSOR_CLI" ] && [ -n "$CODE_CLI" ]; then
+    SELECTED_EDITOR=both
+    printf '%s\n' 'Cursor and VS Code were both found; uninstalling BufferWeave from both.'
+  elif [ -n "$CURSOR_CLI" ]; then
+    SELECTED_EDITOR=cursor
+  elif [ -n "$CODE_CLI" ]; then
+    SELECTED_EDITOR=code
+  else
+    SELECTED_EDITOR=both
+  fi
+fi
+
+FAILED=0
+uninstall_from() {
+  editor_name=$1
+  editor_cli=$2
+  if [ -z "$editor_cli" ]; then
+    printf '%s CLI was not found; remove mhebtehaj.bufferweave there manually if it is installed.\n' "$editor_name" >&2
+    return 1
+  fi
+  if ! "$editor_cli" --uninstall-extension mhebtehaj.bufferweave; then
+    printf '%s could not confirm BufferWeave extension removal.\n' "$editor_name" >&2
+    return 1
+  fi
+}
+
+case "$SELECTED_EDITOR" in
+  cursor) uninstall_from Cursor "$CURSOR_CLI" || FAILED=1 ;;
+  code) uninstall_from 'VS Code' "$CODE_CLI" || FAILED=1 ;;
+  both)
+    if [ -n "$CURSOR_CLI" ]; then uninstall_from Cursor "$CURSOR_CLI" || FAILED=1; fi
+    if [ -n "$CODE_CLI" ]; then uninstall_from 'VS Code' "$CODE_CLI" || FAILED=1; fi
+    if [ -z "$CURSOR_CLI" ] && [ -z "$CODE_CLI" ]; then
+      printf '%s\n' 'Neither editor CLI was found; remove mhebtehaj.bufferweave manually if it is installed.' >&2
+      FAILED=1
+    fi
+    ;;
+esac
+
+if [ "$OWN_REGISTRATION" -eq 1 ] && ! codex mcp remove bufferweave; then
+  printf '%s\n' 'Could not remove the bufferweave MCP registration.' >&2
+  FAILED=1
+fi
+if [ "$OWN_LEGACY_REGISTRATION" -eq 1 ] && ! codex mcp remove cursor_bridge; then
+  printf '%s\n' 'Could not remove this checkout’s legacy cursor_bridge MCP registration.' >&2
+  FAILED=1
+fi
+
+printf '%s\n' 'BufferWeave local teardown finished.'
+printf '%s\n' 'The source checkout and user files were not deleted.'
+exit "$FAILED"

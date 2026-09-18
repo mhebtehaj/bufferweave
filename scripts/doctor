@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+printf 'Repository: %s\n' "$REPO_DIR"
+if command -v python3 >/dev/null 2>&1; then python3 --version; else printf '%s\n' 'Python: not found'; fi
+if command -v node >/dev/null 2>&1; then node --version; else printf '%s\n' 'Node: not found'; fi
+if command -v npm >/dev/null 2>&1; then npm --version; else printf '%s\n' 'npm: not found'; fi
+
+report_editor() {
+  editor_name=$1
+  command_name=$2
+  app_name=$3
+  if command -v "$command_name" >/dev/null 2>&1; then
+    editor_cli=$(command -v "$command_name")
+  elif [ -x "/Applications/$app_name/Contents/Resources/app/bin/$command_name" ]; then
+    editor_cli="/Applications/$app_name/Contents/Resources/app/bin/$command_name"
+  elif [ -x "$HOME/Applications/$app_name/Contents/Resources/app/bin/$command_name" ]; then
+    editor_cli="$HOME/Applications/$app_name/Contents/Resources/app/bin/$command_name"
+  else
+    printf '%s: not found\n' "$editor_name"
+    return
+  fi
+  editor_version=$("$editor_cli" --version 2>/dev/null | sed -n '1p') || editor_version=unknown
+  printf '%s: %s (%s)\n' "$editor_name" "$editor_version" "$editor_cli"
+}
+
+report_editor Cursor cursor Cursor.app
+report_editor 'VS Code' code 'Visual Studio Code.app'
+
+if command -v codex >/dev/null 2>&1; then
+  if MCP_DETAILS=$(codex mcp get bufferweave 2>/dev/null); then
+    printf '%s\n' "$MCP_DETAILS"
+  else
+    printf '%s\n' 'BufferWeave MCP registration: not found'
+  fi
+  if codex mcp get cursor_bridge >/dev/null 2>&1; then
+    printf '%s\n' 'Legacy cursor_bridge registration is still present.'
+  fi
+else
+  printf '%s\n' 'Codex CLI: not found'
+fi
+printf '%s\n' 'For live status and the active access grant, run:'
+printf '%s\n' '  BufferWeave: Show Connection Status'

@@ -1,0 +1,190 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+EXTENSION_DIR="$REPO_DIR/extension"
+VSIX_PATH="$EXTENSION_DIR/bufferweave.vsix"
+MCP_LAUNCHER="$REPO_DIR/scripts/bufferweave-mcp"
+LEGACY_LAUNCHER="$REPO_DIR/scripts/cursor-bridge-mcp"
+SELECTED_EDITOR=
+VSIX_SUPPLIED=0
+
+usage() {
+  printf '%s\n' 'Usage: ./scripts/install-local [--editor cursor|code] [--vsix /absolute/path/to/bufferweave.vsix]'
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --editor)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      case "$2" in
+        cursor|code) SELECTED_EDITOR=$2 ;;
+        *) printf 'Unsupported editor: %s\n' "$2" >&2; usage >&2; exit 2 ;;
+      esac
+      shift 2
+      ;;
+    --vsix)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      VSIX_PATH=$2
+      VSIX_SUPPLIED=1
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+find_cursor_cli() {
+  if command -v cursor >/dev/null 2>&1; then
+    command -v cursor
+    return
+  fi
+  for app_root in /Applications "$HOME/Applications"; do
+    candidate="$app_root/Cursor.app/Contents/Resources/app/bin/cursor"
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  return 1
+}
+
+find_code_cli() {
+  if command -v code >/dev/null 2>&1; then
+    command -v code
+    return
+  fi
+  for app_root in /Applications "$HOME/Applications"; do
+    candidate="$app_root/Visual Studio Code.app/Contents/Resources/app/bin/code"
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  return 1
+}
+
+CURSOR_CLI=
+CODE_CLI=
+CURSOR_CLI=$(find_cursor_cli) || true
+CODE_CLI=$(find_code_cli) || true
+
+if [ -z "$SELECTED_EDITOR" ]; then
+  if [ -n "$CURSOR_CLI" ] && [ -n "$CODE_CLI" ]; then
+    SELECTED_EDITOR=cursor
+    printf '%s\n' 'Both Cursor and VS Code were found; selecting Cursor. Use --editor code to choose VS Code.'
+  elif [ -n "$CURSOR_CLI" ]; then
+    SELECTED_EDITOR=cursor
+    printf '%s\n' 'Detected Cursor.'
+  elif [ -n "$CODE_CLI" ]; then
+    SELECTED_EDITOR=code
+    printf '%s\n' 'Detected VS Code.'
+  else
+    printf '%s\n' 'Neither Cursor nor VS Code was found. Install one editor or its shell command and retry.' >&2
+    exit 1
+  fi
+fi
+
+case "$SELECTED_EDITOR" in
+  cursor)
+    EDITOR_CLI=$CURSOR_CLI
+    EDITOR_NAME=Cursor
+    ;;
+  code)
+    EDITOR_CLI=$CODE_CLI
+    EDITOR_NAME='VS Code'
+    ;;
+esac
+
+if [ -z "$EDITOR_CLI" ]; then
+  printf '%s was selected but its command-line interface was not found.\n' "$EDITOR_NAME" >&2
+  exit 1
+fi
+
+printf '%s\n' "A quick beta note: much of BufferWeave's code was written with AI assistance, under human direction and review."
+printf '%s\n' 'Use version control or backups and review changes before saving. It is provided as-is and used at your own risk.'
+printf '%s\n' 'Installation alone does not grant access to any workspace.'
+
+command -v python3 >/dev/null 2>&1 || {
+  printf '%s\n' 'Python 3.10 or newer is required.' >&2
+  exit 1
+}
+python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || {
+  printf '%s\n' 'Python 3.10 or newer is required.' >&2
+  exit 1
+}
+command -v codex >/dev/null 2>&1 || {
+  printf '%s\n' 'The Codex CLI is required to register the MCP server.' >&2
+  exit 1
+}
+
+if [ "$VSIX_SUPPLIED" -eq 1 ]; then
+  [ -f "$VSIX_PATH" ] || { printf 'VSIX not found: %s\n' "$VSIX_PATH" >&2; exit 1; }
+else
+  command -v node >/dev/null 2>&1 || {
+    printf '%s\n' 'Node.js 22 or newer is required to build the extension.' >&2
+    exit 1
+  }
+  command -v npm >/dev/null 2>&1 || {
+    printf '%s\n' 'npm is required to build the extension.' >&2
+    exit 1
+  }
+  NODE_MAJOR=$(node -p 'Number(process.versions.node.split(".")[0])')
+  [ "$NODE_MAJOR" -ge 22 ] || {
+    printf '%s\n' 'Node.js 22 or newer is required to build the extension.' >&2
+    exit 1
+  }
+  cd "$EXTENSION_DIR"
+  npm ci
+  npm run build
+  npm run package
+fi
+
+if MCP_DETAILS=$(codex mcp get bufferweave 2>/dev/null); then
+  REGISTERED_COMMAND=$(printf '%s\n' "$MCP_DETAILS" | sed -n 's/^  command: //p')
+  if [ "$REGISTERED_COMMAND" != "$MCP_LAUNCHER" ]; then
+    printf '%s\n' 'A different bufferweave MCP registration already exists; no registration was changed.' >&2
+    printf 'Current:  %s\n' "$REGISTERED_COMMAND" >&2
+    printf 'Expected: %s\n' "$MCP_LAUNCHER" >&2
+    exit 1
+  fi
+fi
+
+LEGACY_OWNED=0
+if LEGACY_DETAILS=$(codex mcp get cursor_bridge 2>/dev/null); then
+  LEGACY_COMMAND=$(printf '%s\n' "$LEGACY_DETAILS" | sed -n 's/^  command: //p')
+  if [ "$LEGACY_COMMAND" = "$LEGACY_LAUNCHER" ]; then
+    LEGACY_OWNED=1
+  else
+    printf '%s\n' 'Leaving the existing cursor_bridge registration unchanged because it belongs to another checkout.'
+  fi
+fi
+
+"$EDITOR_CLI" --install-extension "$VSIX_PATH" --force
+
+# Recreate an owned registration so its editor environment always matches this install.
+if codex mcp get bufferweave >/dev/null 2>&1; then
+  codex mcp remove bufferweave
+fi
+codex mcp add bufferweave --env "BUFFERWEAVE_EDITOR=$SELECTED_EDITOR" -- "$MCP_LAUNCHER"
+
+if [ "$LEGACY_OWNED" -eq 1 ]; then
+  codex mcp remove cursor_bridge
+  printf '%s\n' 'Migrated this checkout from the legacy cursor_bridge registration to bufferweave.'
+fi
+
+printf 'Installed BufferWeave beta in %s (human-directed and developed with AI assistance).\n' "$EDITOR_NAME"
+printf '%s\n' 'Reload the editor, open a trusted workspace, and run one of these commands:'
+printf '%s\n' '  BufferWeave: Enable Read and Preview for This Workspace'
+printf '%s\n' '  BufferWeave: Allow Direct Edits for This Workspace'
+printf '%s\n' '  BufferWeave: Allow Saving for This Workspace'
+printf '%s\n' 'Start with Read and Preview, then grant direct-edit or save access only when needed.'
+printf '%s\n' 'Start a new Codex task after first installation so it discovers the tools.'
