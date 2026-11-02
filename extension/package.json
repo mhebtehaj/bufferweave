@@ -111,6 +111,9 @@
   },
   "devDependencies": {
     "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^3.6.2"
+    "@vscode/vsce": "^4.1.0"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
   }
 }
